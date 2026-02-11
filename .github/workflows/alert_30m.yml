@@ -1,0 +1,22 @@
+# 30分ごとにニュースをDiscordへ配信
+name: News Alert (30min)
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # 30分ごと (UTC)
+  workflow_dispatch:
+
+env:
+  DISCORD_WEBHOOK_URL_30M: ${{ secrets.DISCORD_WEBHOOK_URL_30M }}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run 30min alert
+        run: python alert_30m.py

@@ -1,0 +1,26 @@
+# 1日1回、ニュース一覧をDiscordへ配信（GLM整形オプションあり）
+name: News Summary (Daily)
+on:
+  schedule:
+    - cron: '0 0 * * *'   # 毎日 0:00 UTC（日本時間 9:00）
+  workflow_dispatch:
+
+env:
+  DISCORD_WEBHOOK_URL_DAILY: ${{ secrets.DISCORD_WEBHOOK_URL_DAILY }}
+  USE_GLM_FOR_DAILY: ${{ secrets.USE_GLM_FOR_DAILY }}
+  GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+  GLM_API_URL: ${{ secrets.GLM_API_URL }}
+  GLM_MODEL: ${{ secrets.GLM_MODEL }}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run daily summary
+        run: python summary_daily.py
