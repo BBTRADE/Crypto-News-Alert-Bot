@@ -7,7 +7,7 @@
 import os
 import sys
 
-from config import DISCORD_WEBHOOK_URL_DAILY, USE_GLM_FOR_DAILY DISCORD_WEBHOOK_URL_DAILY, USE_GLM_FOR_DAILY
+from config import DISCORD_WEBHOOK_URL_DAILY, USE_GLM_FOR_DAILY
 from rss_fetcher import get_daily_news
 from discord_webhook import send_daily
 from glm_formatter import format_news_with_glm

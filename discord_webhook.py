@@ -21,10 +21,14 @@ def send_webhook(webhook_url: str, content: str = None, embeds: list = None):
     if not body:
         return False, "content または embeds が必要です"
     data = json.dumps(body).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Crypto-News-Alert-Bot/1.0 (GitHub Actions)",
+    }
     req = urllib.request.Request(
         webhook_url,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:

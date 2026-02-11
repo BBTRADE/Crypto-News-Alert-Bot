@@ -1,0 +1,11 @@
+# 変更を GitHub にプッシュするコマンド
+# プロジェクトフォルダ（crypto-news-bot-editable）を開いた状態で実行
+
+git add .
+git commit -m "fix: summary_daily syntax and add User-Agent for Discord webhook"
+git push origin main
+
+# まだリモートを追加していない場合のみ：
+# git remote add origin https://github.com/BBTRADE/Crypto-News-Alert-Bot.git
+# git branch -M main
+# git push -u origin main
