@@ -52,9 +52,19 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as res:
-            out = json.loads(res.read().decode())
-            content = (out.get("choices") or [{}])[0].get("message", {}).get("content", "")
-            print(f"[GLM] 翻訳成功")
+            raw_response = res.read().decode()
+            out = json.loads(raw_response)
+            # デバッグ: レスポンス構造を確認
+            print(f"[GLM] レスポンスキー: {list(out.keys())}")
+            choices = out.get("choices") or []
+            if choices:
+                print(f"[GLM] choices[0]キー: {list(choices[0].keys())}")
+            content = (choices[0].get("message", {}).get("content", "") if choices else "")
+            print(f"[GLM] 翻訳成功 (content長さ: {len(content)})")
+            if content:
+                print(f"[GLM] 翻訳結果: {content[:100]}...")
+            else:
+                print(f"[GLM] 警告: contentが空です。レスポンス: {raw_response[:300]}")
             return (content or "").strip()
     except urllib.error.HTTPError as e:
         print(f"[GLM] HTTP エラー: {e.code} - {e.read().decode()[:200]}")
