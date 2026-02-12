@@ -5,6 +5,7 @@ Cloudflare Cron または GitHub Actions から実行する想定。
 環境変数: DISCORD_WEBHOOK_URL_30M
 """
 import os
+import re
 import sys
 from config import DISCORD_WEBHOOK_URL_30M
 from rss_fetcher import get_recent_news_30m
@@ -12,6 +13,27 @@ from discord_webhook import send_30m
 
 # 重要キーワードに当てはまるものだけ送る（1=速報は重要ニュースのみ推奨）
 IMPORTANT_ONLY = int(os.environ.get("ALERT_30M_IMPORTANT_ONLY", "1"))
+# 要約の最大文字数
+SUMMARY_MAX_CHARS = int(os.environ.get("ALERT_30M_SUMMARY_CHARS", "120"))
+
+
+def _strip_html(text):
+    """HTMLタグを除去してプレーンテキストにする"""
+    if not text:
+        return ""
+    text = re.sub(r'<[^>]+>', '', text)
+    text = text.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+def _get_summary(entry, max_chars=120):
+    """RSSエントリから要約を取得（summary または description）"""
+    raw = getattr(entry, 'summary', '') or getattr(entry, 'description', '') or ''
+    text = _strip_html(raw)
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit(' ', 1)[0] + '…'
+    return text
 
 def _load_posted_links(filepath, max_lines=800):
     """送信済みURL一覧を読み込み（前回実行分を除外するため）。"""
@@ -43,17 +65,17 @@ def main():
     if not items:
         print("送信対象の新着重要ニュースはありません（過去30分・未送信のみ）")
         return
+    # 各ニュースを個別メッセージとして送信
     messages = []
-    buf = "⚡ **直近30分の重要ニュース**\n\n"
     for e in items:
-        line = f"• {e.title}\n  <{e.link}>\n"
-        if len(buf) + len(line) > 1900:
-            messages.append(buf)
-            buf = line
+        title = e.title or "(タイトルなし)"
+        summary = _get_summary(e, SUMMARY_MAX_CHARS)
+        url = e.link
+        if summary:
+            msg = f"⚡速報⚡\n**{title}**\n{summary}\n{url}"
         else:
-            buf += line
-    if buf.strip():
-        messages.append(buf)
+            msg = f"⚡速報⚡\n**{title}**\n{url}"
+        messages.append(msg)
     ok, err = send_30m(messages)
     if not ok:
         print(f"送信失敗: {err}", file=sys.stderr)
