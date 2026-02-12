@@ -8,6 +8,10 @@ on:
 env:
   DISCORD_WEBHOOK_URL_30M: ${{ secrets.DISCORD_WEBHOOK_URL_30M }}
   ALERT_30M_IMPORTANT_ONLY: "1"
+  # 翻訳用（英語ニュースを日本語に自動翻訳）
+  GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+  GLM_API_URL: ${{ secrets.GLM_API_URL }}
+  GLM_MODEL: ${{ secrets.GLM_MODEL }}
 
 jobs:
   run:
