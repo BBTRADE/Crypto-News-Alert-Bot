@@ -136,14 +136,28 @@ def translate_title_and_summary(title, summary):
     if not GLM_API_KEY:
         return title, summary
     
-    # 明確なプロンプトで翻訳（説明文を出力させない）
-    system = "英語を日本語に翻訳してください。翻訳文のみを出力。説明・選択肢・コメントは一切不要。"
+    # Few-shot プロンプトで期待する出力形式を明示
+    system = """英語のニュースタイトルを日本語に翻訳してください。
+翻訳結果のみを出力してください。説明や分析は不要です。
+
+例1:
+入力: Bitcoin Hits New All-Time High
+出力: ビットコインが史上最高値を更新
+
+例2:
+入力: SEC Approves Spot Bitcoin ETF
+出力: SECがビットコイン現物ETFを承認
+
+例3:
+入力: Ethereum Price Drops 10% Amid Market Uncertainty
+出力: イーサリアム価格、市場の不確実性で10%下落"""
     
     # タイトルのみ翻訳（無料プランのレート制限対策）
     translated_title = title
     
-    # タイトルを翻訳
-    result = _call_glm(system, title, max_tokens=256)
+    # タイトルを翻訳（Few-shot形式で入力）
+    user_prompt = f"入力: {title}\n出力:"
+    result = _call_glm(system, user_prompt, max_tokens=256)
     if result:
         result = result.strip()
         # 結果が日本語を含んでいるかチェック（ひらがな・カタカナ・漢字）
