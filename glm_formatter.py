@@ -54,17 +54,37 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
         with urllib.request.urlopen(req, timeout=30) as res:
             raw_response = res.read().decode()
             out = json.loads(raw_response)
-            # デバッグ: レスポンス構造を確認
-            print(f"[GLM] レスポンスキー: {list(out.keys())}")
             choices = out.get("choices") or []
-            if choices:
-                print(f"[GLM] choices[0]キー: {list(choices[0].keys())}")
-            content = (choices[0].get("message", {}).get("content", "") if choices else "")
+            if not choices:
+                print(f"[GLM] 警告: choicesが空です")
+                return None
+            
+            message = choices[0].get("message", {})
+            # content または reasoning_content から結果を取得
+            content = message.get("content", "")
+            reasoning = message.get("reasoning_content", "")
+            
+            # reasoning_content に翻訳結果がある場合、最後の翻訳結果を抽出
+            if not content and reasoning:
+                # reasoning から日本語翻訳を抽出（最後の行または ** で囲まれた結果）
+                lines = reasoning.strip().split('\n')
+                # 最後の意味のある行を探す
+                for line in reversed(lines):
+                    line = line.strip()
+                    if line and not line.startswith('*') and not line.startswith('#'):
+                        content = line
+                        break
+                # それでも見つからない場合、reasoning全体から日本語部分を探す
+                if not content:
+                    import re
+                    # 「翻訳:」や「Translation:」の後の部分を探す
+                    match = re.search(r'(?:翻訳|Translation|Result)[：:]\s*(.+)', reasoning, re.IGNORECASE)
+                    if match:
+                        content = match.group(1).strip()
+            
             print(f"[GLM] 翻訳成功 (content長さ: {len(content)})")
             if content:
-                print(f"[GLM] 翻訳結果: {content[:100]}...")
-            else:
-                print(f"[GLM] 警告: contentが空です。レスポンス: {raw_response[:300]}")
+                print(f"[GLM] 翻訳結果: {content[:80]}...")
             return (content or "").strip()
     except urllib.error.HTTPError as e:
         print(f"[GLM] HTTP エラー: {e.code} - {e.read().decode()[:200]}")
@@ -117,15 +137,15 @@ def translate_title_and_summary(title, summary):
     translated_title = title
     translated_summary = summary
     
-    # タイトルを翻訳
-    result = _call_glm(system, title, max_tokens=256)
+    # タイトルを翻訳（reasoning modelはトークンを多く消費するため増やす）
+    result = _call_glm(system, title, max_tokens=1024)
     if result:
         translated_title = result.strip()
         print(f"[GLM] タイトル翻訳: {title[:30]}... → {translated_title[:30]}...")
     
     # 要約を翻訳
     if summary and _is_mostly_english(summary):
-        result = _call_glm(system, summary, max_tokens=512)
+        result = _call_glm(system, summary, max_tokens=2048)
         if result:
             translated_summary = result.strip()
             print(f"[GLM] 要約翻訳完了")
