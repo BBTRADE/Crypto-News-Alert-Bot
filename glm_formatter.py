@@ -33,9 +33,9 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
     if not GLM_API_URL:
         print("[GLM] API URL が未設定です")
         return None
-    
+
     print(f"[GLM] 翻訳リクエスト送信中... (model={GLM_MODEL}, url={GLM_API_URL[:50]}...)")
-    
+
     body = {
         "model": GLM_MODEL or "glm-4-flash",
         "messages": [
@@ -43,6 +43,7 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
             {"role": "user", "content": user_prompt},
         ],
         "max_tokens": max_tokens,
+        "temperature": 0.3,  # 一貫性のある翻訳のため低めに設定
     }
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
@@ -57,46 +58,59 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
     try:
         with urllib.request.urlopen(req, timeout=30) as res:
             raw_response = res.read().decode()
+            print(f"[GLM] APIレスポンス全体: {raw_response[:300]}...")
             out = json.loads(raw_response)
             choices = out.get("choices") or []
             if not choices:
                 print(f"[GLM] 警告: choicesが空です")
                 return None
-            
+
             message = choices[0].get("message", {})
             # content または reasoning_content から結果を取得
             content = message.get("content", "")
             reasoning = message.get("reasoning_content", "")
-            
+
+            print(f"[GLM] content: {content[:100] if content else '(空)'}")
+            print(f"[GLM] reasoning_content: {reasoning[:100] if reasoning else '(空)'}")
+
             # reasoning_content に翻訳結果がある場合、最後の翻訳結果を抽出
             if not content and reasoning:
-                # reasoning から日本語翻訳を抽出（最後の行または ** で囲まれた結果）
-                lines = reasoning.strip().split('\n')
-                # 最後の意味のある行を探す
-                for line in reversed(lines):
-                    line = line.strip()
-                    if line and not line.startswith('*') and not line.startswith('#'):
-                        content = line
-                        break
-                # それでも見つからない場合、reasoning全体から日本語部分を探す
-                if not content:
-                    import re
-                    # 「翻訳:」や「Translation:」の後の部分を探す
-                    match = re.search(r'(?:翻訳|Translation|Result)[：:]\s*(.+)', reasoning, re.IGNORECASE)
-                    if match:
-                        content = match.group(1).strip()
-            
-            print(f"[GLM] 翻訳成功 (content長さ: {len(content)})")
-            if content:
-                print(f"[GLM] 翻訳結果: {content[:80]}...")
+                import re
+                # 「出力:」の後の部分を優先的に抽出
+                match = re.search(r'出力[：:]\s*(.+?)(?:\n|$)', reasoning, re.IGNORECASE)
+                if match:
+                    content = match.group(1).strip()
+                    print(f"[GLM] reasoning_contentから「出力:」パターンで抽出: {content[:50]}...")
+                else:
+                    # reasoning から日本語翻訳を抽出（最後の行または ** で囲まれた結果）
+                    lines = reasoning.strip().split('\n')
+                    # 最後の意味のある行を探す
+                    for line in reversed(lines):
+                        line = line.strip()
+                        if line and not line.startswith('*') and not line.startswith('#') and not line.startswith('入力'):
+                            content = line
+                            print(f"[GLM] reasoning_contentから最後の行を抽出: {content[:50]}...")
+                            break
+                    # それでも見つからない場合、reasoning全体から日本語部分を探す
+                    if not content:
+                        # 「翻訳:」や「Translation:」の後の部分を探す
+                        match = re.search(r'(?:翻訳|Translation|Result)[：:]\s*(.+)', reasoning, re.IGNORECASE)
+                        if match:
+                            content = match.group(1).strip()
+                            print(f"[GLM] reasoning_contentから「翻訳:」パターンで抽出: {content[:50]}...")
+
+            print(f"[GLM] 最終的な翻訳結果 (content長さ: {len(content)}): {content[:100] if content else '(なし)'}...")
             # レート制限対策：次のAPIコールまで待機
             time.sleep(API_CALL_DELAY)
             return (content or "").strip()
     except urllib.error.HTTPError as e:
-        print(f"[GLM] HTTP エラー: {e.code} - {e.read().decode()[:200]}")
+        error_body = e.read().decode()
+        print(f"[GLM] HTTP エラー: {e.code} - {error_body[:300]}")
         return None
     except Exception as e:
         print(f"[GLM] エラー: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -127,39 +141,63 @@ def translate_title_and_summary(title, summary):
     """
     if not title:
         return title, summary
-    
+
     # タイトルが英語でなければ翻訳不要
     if not _is_mostly_english(title):
         print(f"[GLM] 日本語のためスキップ: {title[:30]}...")
         return title, summary
-    
-    if not GLM_API_KEY:
-        return title, summary
-    
-    # Few-shot プロンプトで期待する出力形式を明示
-    system = """英語のニュースタイトルを日本語に翻訳してください。
-翻訳結果のみを出力してください。説明や分析は不要です。
 
-例1:
+    if not GLM_API_KEY:
+        print(f"[GLM] API Key未設定のためスキップ")
+        return title, summary
+
+    print(f"[GLM] 翻訳対象タイトル: {title}")
+
+    # Few-shot プロンプトで期待する出力形式を明示（より厳格に）
+    system = """あなたは英語から日本語への翻訳専門家です。
+与えられた英語のニュースタイトルを、自然な日本語に翻訳してください。
+
+重要な指示:
+- 翻訳結果のみを1行で出力してください
+- 説明、分析、追加情報は一切不要です
+- 「出力:」などのラベルも不要です
+- 日本語の翻訳文だけを返してください
+
+例:
 入力: Bitcoin Hits New All-Time High
 出力: ビットコインが史上最高値を更新
 
-例2:
 入力: SEC Approves Spot Bitcoin ETF
 出力: SECがビットコイン現物ETFを承認
 
-例3:
 入力: Ethereum Price Drops 10% Amid Market Uncertainty
 出力: イーサリアム価格、市場の不確実性で10%下落"""
-    
+
     # タイトルのみ翻訳（無料プランのレート制限対策）
     translated_title = title
-    
+
     # タイトルを翻訳（Few-shot形式で入力）
     user_prompt = f"入力: {title}\n出力:"
     result = _call_glm(system, user_prompt, max_tokens=256)
+
     if result:
+        # 「出力:」などのラベルが含まれている場合は除去
+        import re
+        result = re.sub(r'^(?:出力|Output)[：:]\s*', '', result, flags=re.IGNORECASE).strip()
+
+        # 複数行の場合は最初の行だけを使用
+        if '\n' in result:
+            lines = [line.strip() for line in result.split('\n') if line.strip()]
+            for line in lines:
+                # 日本語を含む行を優先
+                if any('\u3040' <= c <= '\u309F' or '\u30A0' <= c <= '\u30FF' or '\u4E00' <= c <= '\u9FFF' for c in line):
+                    result = line
+                    break
+            else:
+                result = lines[0] if lines else result
+
         result = result.strip()
+
         # 結果が日本語を含んでいるかチェック（ひらがな・カタカナ・漢字）
         has_japanese = any('\u3040' <= c <= '\u309F' or  # ひらがな
                           '\u30A0' <= c <= '\u30FF' or  # カタカナ
@@ -167,10 +205,12 @@ def translate_title_and_summary(title, summary):
                           for c in result)
         if has_japanese:
             translated_title = result
-            print(f"[GLM] タイトル翻訳: {title[:30]}... → {translated_title[:30]}...")
+            print(f"[GLM] ✓ タイトル翻訳成功: {title[:40]}... → {translated_title[:40]}...")
         else:
-            print(f"[GLM] 警告: 翻訳結果が日本語でない: {result[:50]}...")
-    
+            print(f"[GLM] ✗ 警告: 翻訳結果が日本語でない: {result[:80]}...")
+    else:
+        print(f"[GLM] ✗ 翻訳失敗: resultがNone")
+
     # 要約は翻訳しない（レート制限回避のため）
     return translated_title, summary
 
