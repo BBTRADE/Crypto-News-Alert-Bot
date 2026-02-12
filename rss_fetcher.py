@@ -5,7 +5,7 @@ RSS取得・フィルタの共通ロジック（30分Bot・日次まとめBotで
 import feedparser
 from datetime import datetime, timedelta, timezone
 
-from config import RSS_URLS, IMPORTANT_KEYWORDS
+from config import RSS_URLS, IMPORTANT_KEYWORDS, CRYPTO_MEDIA_KEYWORDS
 
 
 def _parse_published(entry):
@@ -25,10 +25,36 @@ def is_recent_by_hours(entry, hours=24):
     return published > datetime.now(timezone.utc) - timedelta(hours=hours)
 
 
-def is_important(text, threshold=2):
-    if not text:
+def _is_crypto_media(source_url):
+    """暗号資産専門メディアかどうかを判定"""
+    if not source_url:
         return False
-    return sum(1 for k in IMPORTANT_KEYWORDS if k in text) >= threshold
+    url_lower = source_url.lower()
+    return any(media in url_lower for media in CRYPTO_MEDIA_KEYWORDS)
+
+
+def count_keywords(text):
+    """キーワードのマッチ数を返す（大文字小文字を無視）"""
+    if not text:
+        return 0
+    text_lower = text.lower()
+    return sum(1 for k in IMPORTANT_KEYWORDS if k.lower() in text_lower)
+
+
+def is_important(text, threshold=2):
+    """重要キーワードが threshold 個以上含まれているか（大文字小文字無視）"""
+    return count_keywords(text) >= threshold
+
+
+def is_important_for_source(text, source_url):
+    """
+    ソースに応じた重要度判定:
+    - 暗号資産専門メディア: threshold=1（1つでもキーワードがあれば重要）
+    - その他のメディア: threshold=2（2つ以上必要）
+    """
+    if _is_crypto_media(source_url):
+        return count_keywords(text) >= 1
+    return count_keywords(text) >= 2
 
 
 def _is_similar(t1, t2):
@@ -43,6 +69,7 @@ def get_news(minutes=None, hours=None, dedup=True):
     minutes: 過去N分以内に限定（指定しない場合は時間フィルタなし）
     hours: 過去N時間以内に限定（minutes より優先されない。minutes/hours のどちらか指定）
     dedup: タイトルで重複除去
+    各 entry に _source_url 属性を付与（フィルタ判定用）
     """
     seen_titles = []
     entries = []
@@ -59,6 +86,7 @@ def get_news(minutes=None, hours=None, dedup=True):
                     continue
                 if dedup and any(_is_similar(entry.title, t) for t in seen_titles):
                     continue
+                entry._source_url = url  # ソースURLを記録
                 entries.append(entry)
                 seen_titles.append(entry.title or "")
         except Exception:
@@ -70,10 +98,15 @@ def get_news(minutes=None, hours=None, dedup=True):
 
 
 def get_recent_news_30m(important_only=False):
-    """過去30分のニュース。important_only=True ならキーワードでフィルタ。"""
+    """
+    過去30分のニュース。
+    important_only=True ならソースに応じたキーワードフィルタ:
+    - 暗号資産専門メディア: 1つ以上のキーワードでOK
+    - その他: 2つ以上必要
+    """
     items = get_news(minutes=30)
     if important_only:
-        items = [e for e in items if is_important(e.title or "")]
+        items = [e for e in items if is_important_for_source(e.title or "", getattr(e, '_source_url', ''))]
     return items
 
 

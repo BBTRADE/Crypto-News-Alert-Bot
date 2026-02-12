@@ -32,6 +32,11 @@ RSS_URLS = [
     "https://www3.nhk.or.jp/rss/news/cat0.xml",
 ]
 
+# 暗号資産専門メディア（これらは threshold=1 で判定）
+CRYPTO_MEDIA_KEYWORDS = [
+    "coindesk", "cointelegraph", "decrypt", "bitcoin.com", "cryptonews", "coinpost",
+]
+
 IMPORTANT_KEYWORDS = [
     "FOMC", "利上げ", "利下げ", "インフレ", "破綻", "暴落", "金融", "混乱", "デフォルト",
     "制裁", "戦争", "侵攻", "大統領", "トランプ", "バイデン", "発表", "緊急", "G7", "BRICS",
