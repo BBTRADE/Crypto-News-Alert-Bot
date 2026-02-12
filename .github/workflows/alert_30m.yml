@@ -8,8 +8,8 @@ on:
 env:
   DISCORD_WEBHOOK_URL_30M: ${{ secrets.DISCORD_WEBHOOK_URL_30M }}
   ALERT_30M_IMPORTANT_ONLY: "1"
-  # テスト用: 時間範囲を2時間に拡大（本番は30に戻す）
-  ALERT_30M_MINUTES: "120"
+  # 本番環境: 30分間のニュースを取得
+  ALERT_30M_MINUTES: "30"
   # 翻訳用（英語ニュースを日本語に自動翻訳）
   GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
   GLM_API_URL: ${{ secrets.GLM_API_URL }}
@@ -20,12 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # キャッシュを一時的に無効化（テスト用）
-      # - uses: actions/cache/restore@v4
-      #   with:
-      #     path: .cache
-      #     key: posted-links-30m-${{ hashFiles('.cache/posted_links_30m.txt') }}
-      #     restore-keys: posted-links-30m-
+      # 送信済みリンクのキャッシュを復元
+      - uses: actions/cache/restore@v4
+        with:
+          path: .cache
+          key: posted-links-30m-${{ hashFiles('.cache/posted_links_30m.txt') }}
+          restore-keys: posted-links-30m-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -33,9 +33,9 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run 30min alert
         run: python alert_30m.py
-      # キャッシュを一時的に無効化（テスト用）
-      # - uses: actions/cache/save@v4
-      #   if: always()
-      #   with:
-      #     path: .cache
-      #     key: posted-links-30m-${{ hashFiles('.cache/posted_links_30m.txt') }}
+      # 送信済みリンクのキャッシュを保存
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .cache
+          key: posted-links-30m-${{ hashFiles('.cache/posted_links_30m.txt') }}
