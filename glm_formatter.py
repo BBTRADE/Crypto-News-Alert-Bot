@@ -23,10 +23,17 @@ def _is_mostly_english(text):
 
 def _call_glm(system_prompt, user_prompt, max_tokens=256):
     """GLM API を呼び出す共通関数"""
-    if not GLM_API_KEY or not GLM_API_URL:
+    if not GLM_API_KEY:
+        print("[GLM] API Key が未設定です")
         return None
+    if not GLM_API_URL:
+        print("[GLM] API URL が未設定です")
+        return None
+    
+    print(f"[GLM] 翻訳リクエスト送信中... (model={GLM_MODEL}, url={GLM_API_URL[:50]}...)")
+    
     body = {
-        "model": GLM_MODEL,
+        "model": GLM_MODEL or "glm-4-flash",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -47,8 +54,13 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
         with urllib.request.urlopen(req, timeout=30) as res:
             out = json.loads(res.read().decode())
             content = (out.get("choices") or [{}])[0].get("message", {}).get("content", "")
+            print(f"[GLM] 翻訳成功")
             return (content or "").strip()
-    except Exception:
+    except urllib.error.HTTPError as e:
+        print(f"[GLM] HTTP エラー: {e.code} - {e.read().decode()[:200]}")
+        return None
+    except Exception as e:
+        print(f"[GLM] エラー: {type(e).__name__}: {e}")
         return None
 
 
