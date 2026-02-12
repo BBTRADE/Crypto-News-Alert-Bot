@@ -94,36 +94,31 @@ def translate_title_and_summary(title, summary):
     
     # タイトルが英語でなければ翻訳不要
     if not _is_mostly_english(title):
+        print(f"[GLM] 日本語のためスキップ: {title[:30]}...")
         return title, summary
     
     if not GLM_API_KEY:
         return title, summary
     
-    # タイトルと要約をまとめて翻訳
-    system = (
-        "あなたは優秀な翻訳者です。与えられたニュースのタイトルと要約を自然な日本語に翻訳してください。"
-        "以下の形式で出力してください（他の説明は不要）:\n"
-        "タイトル: [翻訳されたタイトル]\n"
-        "要約: [翻訳された要約]"
-    )
-    if summary:
-        user = f"タイトル: {title}\n要約: {summary}"
-    else:
-        user = f"タイトル: {title}"
+    # シンプルなプロンプトで翻訳
+    system = "あなたは英日翻訳者です。与えられた英語を自然な日本語に翻訳してください。翻訳結果のみを出力し、説明は不要です。"
     
-    result = _call_glm(system, user, max_tokens=512)
-    if not result:
-        return title, summary
-    
-    # 結果をパース
+    # タイトルと要約を別々に翻訳（パースの問題を回避）
     translated_title = title
     translated_summary = summary
-    for line in result.split('\n'):
-        line = line.strip()
-        if line.startswith('タイトル:') or line.startswith('タイトル：'):
-            translated_title = line.split(':', 1)[-1].split('：', 1)[-1].strip()
-        elif line.startswith('要約:') or line.startswith('要約：'):
-            translated_summary = line.split(':', 1)[-1].split('：', 1)[-1].strip()
+    
+    # タイトルを翻訳
+    result = _call_glm(system, title, max_tokens=256)
+    if result:
+        translated_title = result.strip()
+        print(f"[GLM] タイトル翻訳: {title[:30]}... → {translated_title[:30]}...")
+    
+    # 要約を翻訳
+    if summary and _is_mostly_english(summary):
+        result = _call_glm(system, summary, max_tokens=512)
+        if result:
+            translated_summary = result.strip()
+            print(f"[GLM] 要約翻訳完了")
     
     return translated_title, translated_summary
 
