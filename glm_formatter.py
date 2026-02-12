@@ -76,28 +76,32 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
             # reasoning_content に翻訳結果がある場合、最後の翻訳結果を抽出
             if not content and reasoning:
                 import re
-                # 「出力:」の後の部分を優先的に抽出
-                match = re.search(r'出力[：:]\s*(.+?)(?:\n|$)', reasoning, re.IGNORECASE)
-                if match:
-                    content = match.group(1).strip()
+                # 1. 「出力:」の後の部分を優先的に抽出（最後に出現するものを取得）
+                matches = list(re.finditer(r'出力[：:]\s*(.+?)(?:\n|$)', reasoning, re.IGNORECASE | re.MULTILINE))
+                if matches:
+                    # 最後の「出力:」を使用
+                    content = matches[-1].group(1).strip()
                     print(f"[GLM] reasoning_contentから「出力:」パターンで抽出: {content[:50]}...")
-                else:
-                    # reasoning から日本語翻訳を抽出（最後の行または ** で囲まれた結果）
+
+                # 2. 見つからない場合、日本語を含む行を探す（英語の説明行を除外）
+                if not content:
                     lines = reasoning.strip().split('\n')
-                    # 最後の意味のある行を探す
-                    for line in reversed(lines):
+                    for line in lines:
                         line = line.strip()
-                        if line and not line.startswith('*') and not line.startswith('#') and not line.startswith('入力'):
-                            content = line
-                            print(f"[GLM] reasoning_contentから最後の行を抽出: {content[:50]}...")
-                            break
-                    # それでも見つからない場合、reasoning全体から日本語部分を探す
-                    if not content:
-                        # 「翻訳:」や「Translation:」の後の部分を探す
-                        match = re.search(r'(?:翻訳|Translation|Result)[：:]\s*(.+)', reasoning, re.IGNORECASE)
-                        if match:
-                            content = match.group(1).strip()
-                            print(f"[GLM] reasoning_contentから「翻訳:」パターンで抽出: {content[:50]}...")
+                        # 日本語（ひらがな・カタカナ・漢字）を含み、英語の説明行でない行を探す
+                        if line and any('\u3040' <= c <= '\u309F' or '\u30A0' <= c <= '\u30FF' or '\u4E00' <= c <= '\u9FFF' for c in line):
+                            # 英語のマークダウンやリスト記号、説明文を除外
+                            if not re.match(r'^\d+\.\s+\*\*', line) and not line.startswith('*') and not line.startswith('#'):
+                                content = line
+                                print(f"[GLM] reasoning_contentから日本語行を抽出: {content[:50]}...")
+                                break
+
+                # 3. それでも見つからない場合、「翻訳:」や「Translation:」パターンを探す
+                if not content:
+                    match = re.search(r'(?:翻訳|Translation|Result)[：:]\s*(.+)', reasoning, re.IGNORECASE)
+                    if match:
+                        content = match.group(1).strip()
+                        print(f"[GLM] reasoning_contentから「翻訳:」パターンで抽出: {content[:50]}...")
 
             print(f"[GLM] 最終的な翻訳結果 (content長さ: {len(content)}): {content[:100] if content else '(なし)'}...")
             # レート制限対策：次のAPIコールまで待機
@@ -153,15 +157,14 @@ def translate_title_and_summary(title, summary):
 
     print(f"[GLM] 翻訳対象タイトル: {title}")
 
-    # Few-shot プロンプトで期待する出力形式を明示（より厳格に）
+    # Few-shot プロンプトで期待する出力形式を明示（推論モデル対応）
     system = """あなたは英語から日本語への翻訳専門家です。
 与えられた英語のニュースタイトルを、自然な日本語に翻訳してください。
 
-重要な指示:
-- 翻訳結果のみを1行で出力してください
-- 説明、分析、追加情報は一切不要です
-- 「出力:」などのラベルも不要です
-- 日本語の翻訳文だけを返してください
+手順:
+1. タイトルの意味を理解する
+2. 自然な日本語に翻訳する
+3. 最後に「出力: [日本語訳]」の形式で翻訳結果を出力する
 
 例:
 入力: Bitcoin Hits New All-Time High
@@ -177,8 +180,9 @@ def translate_title_and_summary(title, summary):
     translated_title = title
 
     # タイトルを翻訳（Few-shot形式で入力）
+    # 推論モデル用にmax_tokensを大きめに設定（推論プロセス + 翻訳結果）
     user_prompt = f"入力: {title}\n出力:"
-    result = _call_glm(system, user_prompt, max_tokens=256)
+    result = _call_glm(system, user_prompt, max_tokens=1024)
 
     if result:
         # 「出力:」などのラベルが含まれている場合は除去
