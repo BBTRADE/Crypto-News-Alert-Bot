@@ -8,7 +8,7 @@ import os
 import re
 import sys
 from config import DISCORD_WEBHOOK_URL_30M, GLM_API_KEY
-from rss_fetcher import get_recent_news_30m
+from rss_fetcher import get_recent_news_30m, get_news, is_important_for_source
 from discord_webhook import send_30m
 from glm_formatter import translate_title_and_summary
 
@@ -16,6 +16,8 @@ from glm_formatter import translate_title_and_summary
 IMPORTANT_ONLY = int(os.environ.get("ALERT_30M_IMPORTANT_ONLY", "1"))
 # 要約の最大文字数
 SUMMARY_MAX_CHARS = int(os.environ.get("ALERT_30M_SUMMARY_CHARS", "120"))
+# 取得する時間範囲（分）- テスト時は長めに設定可能
+ALERT_MINUTES = int(os.environ.get("ALERT_30M_MINUTES", "30"))
 
 
 def _strip_html(text):
@@ -61,10 +63,16 @@ def main():
         sys.exit(1)
     posted_file = os.environ.get("POSTED_LINKS_FILE", ".cache/posted_links_30m.txt")
     posted = _load_posted_links(posted_file)
-    items = get_recent_news_30m(important_only=bool(IMPORTANT_ONLY))
+    
+    # 時間範囲を環境変数で指定可能に（デフォルト30分）
+    print(f"[INFO] 過去{ALERT_MINUTES}分のニュースを取得中...")
+    items = get_news(minutes=ALERT_MINUTES)
+    if IMPORTANT_ONLY:
+        items = [e for e in items if is_important_for_source(e.title or "", getattr(e, '_source_url', ''))]
     items = [e for e in items if e.link not in posted]
+    print(f"[INFO] 対象ニュース: {len(items)}件")
     if not items:
-        print("送信対象の新着重要ニュースはありません（過去30分・未送信のみ）")
+        print(f"送信対象の新着重要ニュースはありません（過去{ALERT_MINUTES}分・未送信のみ）")
         return
     # 各ニュースを個別メッセージとして送信
     messages = []
