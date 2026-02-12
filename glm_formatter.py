@@ -58,7 +58,7 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
     try:
         with urllib.request.urlopen(req, timeout=30) as res:
             raw_response = res.read().decode()
-            print(f"[GLM] APIレスポンス全体: {raw_response[:300]}...")
+            print(f"[GLM] APIレスポンス全体: {raw_response[:500]}...")
             out = json.loads(raw_response)
             choices = out.get("choices") or []
             if not choices:
@@ -157,47 +157,44 @@ def translate_title_and_summary(title, summary):
 
     print(f"[GLM] 翻訳対象タイトル: {title}")
 
-    # Few-shot プロンプトで期待する出力形式を明示（推論モデル対応）
-    system = """あなたは英語から日本語への翻訳専門家です。
-与えられた英語のニュースタイトルを、自然な日本語に翻訳してください。
-
-手順:
-1. タイトルの意味を理解する
-2. 自然な日本語に翻訳する
-3. 最後に「出力: [日本語訳]」の形式で翻訳結果を出力する
+    # シンプルなプロンプト（通常モデル・推論モデル両対応）
+    system = """あなたは英語を日本語に翻訳する専門家です。
+与えられた英語のニュースタイトルを日本語に翻訳してください。
+翻訳結果だけを出力してください。
 
 例:
-入力: Bitcoin Hits New All-Time High
-出力: ビットコインが史上最高値を更新
-
-入力: SEC Approves Spot Bitcoin ETF
-出力: SECがビットコイン現物ETFを承認
-
-入力: Ethereum Price Drops 10% Amid Market Uncertainty
-出力: イーサリアム価格、市場の不確実性で10%下落"""
+Bitcoin Hits New All-Time High → ビットコインが史上最高値を更新
+SEC Approves Spot Bitcoin ETF → SECがビットコイン現物ETFを承認
+Ethereum Price Drops 10% → イーサリアム価格が10%下落"""
 
     # タイトルのみ翻訳（無料プランのレート制限対策）
     translated_title = title
 
-    # タイトルを翻訳（Few-shot形式で入力）
-    # 推論モデル用にmax_tokensを大きめに設定（推論プロセス + 翻訳結果）
-    user_prompt = f"入力: {title}\n出力:"
-    result = _call_glm(system, user_prompt, max_tokens=1024)
+    # タイトルを翻訳（シンプルな形式）
+    user_prompt = title
+    # 推論モデルの場合でも対応できるよう大きめに設定、通常モデルなら少なく使用される
+    result = _call_glm(system, user_prompt, max_tokens=2048)
 
     if result:
-        # 「出力:」などのラベルが含まれている場合は除去
+        # クリーンアップ: 不要なラベルやマークダウンを除去
         import re
-        result = re.sub(r'^(?:出力|Output)[：:]\s*', '', result, flags=re.IGNORECASE).strip()
+        result = re.sub(r'^(?:出力|Output|翻訳|Translation)[：:]\s*', '', result, flags=re.IGNORECASE).strip()
+        # プレースホルダーを除去
+        result = re.sub(r'\[Japanese Translation\]', '', result, flags=re.IGNORECASE).strip()
+        # 引用符を除去
+        result = result.strip('"\'')
 
-        # 複数行の場合は最初の行だけを使用
+        # 複数行の場合は日本語を含む最初の行を使用
         if '\n' in result:
             lines = [line.strip() for line in result.split('\n') if line.strip()]
             for line in lines:
-                # 日本語を含む行を優先
-                if any('\u3040' <= c <= '\u309F' or '\u30A0' <= c <= '\u30FF' or '\u4E00' <= c <= '\u9FFF' for c in line):
-                    result = line
-                    break
+                # 日本語を含む行を優先（説明文やマークダウンを除外）
+                if line and any('\u3040' <= c <= '\u309F' or '\u30A0' <= c <= '\u30FF' or '\u4E00' <= c <= '\u9FFF' for c in line):
+                    if not re.match(r'^\d+\.\s+\*\*', line) and not line.startswith('*') and not line.startswith('#'):
+                        result = line
+                        break
             else:
+                # 日本語を含む行がない場合は最初の行
                 result = lines[0] if lines else result
 
         result = result.strip()
@@ -207,11 +204,11 @@ def translate_title_and_summary(title, summary):
                           '\u30A0' <= c <= '\u30FF' or  # カタカナ
                           '\u4E00' <= c <= '\u9FFF'     # 漢字
                           for c in result)
-        if has_japanese:
+        if has_japanese and len(result) > 3:  # 短すぎる結果を除外
             translated_title = result
             print(f"[GLM] ✓ タイトル翻訳成功: {title[:40]}... → {translated_title[:40]}...")
         else:
-            print(f"[GLM] ✗ 警告: 翻訳結果が日本語でない: {result[:80]}...")
+            print(f"[GLM] ✗ 警告: 翻訳結果が日本語でないか短すぎる: '{result}'")
     else:
         print(f"[GLM] ✗ 翻訳失敗: resultがNone")
 
