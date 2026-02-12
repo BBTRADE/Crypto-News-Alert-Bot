@@ -6,10 +6,14 @@ OpenAI互換の chat/completions エンドポイントを想定。
 無料モデル: glm-4-flash, glm-4.7-flash
 """
 import json
+import time
 import urllib.request
 import urllib.error
 
 from config import GLM_API_KEY, GLM_API_URL, GLM_MODEL
+
+# レート制限対策：APIコール間の待機時間（秒）
+API_CALL_DELAY = 2
 
 
 def _is_mostly_english(text):
@@ -85,6 +89,8 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
             print(f"[GLM] 翻訳成功 (content長さ: {len(content)})")
             if content:
                 print(f"[GLM] 翻訳結果: {content[:80]}...")
+            # レート制限対策：次のAPIコールまで待機
+            time.sleep(API_CALL_DELAY)
             return (content or "").strip()
     except urllib.error.HTTPError as e:
         print(f"[GLM] HTTP エラー: {e.code} - {e.read().decode()[:200]}")
@@ -133,9 +139,8 @@ def translate_title_and_summary(title, summary):
     # シンプルなプロンプトで翻訳
     system = "あなたは英日翻訳者です。与えられた英語を自然な日本語に翻訳してください。翻訳結果のみを出力し、説明は不要です。"
     
-    # タイトルと要約を別々に翻訳（パースの問題を回避）
+    # タイトルのみ翻訳（無料プランのレート制限対策）
     translated_title = title
-    translated_summary = summary
     
     # タイトルを翻訳（reasoning modelはトークンを多く消費するため増やす）
     result = _call_glm(system, title, max_tokens=1024)
@@ -143,14 +148,8 @@ def translate_title_and_summary(title, summary):
         translated_title = result.strip()
         print(f"[GLM] タイトル翻訳: {title[:30]}... → {translated_title[:30]}...")
     
-    # 要約を翻訳
-    if summary and _is_mostly_english(summary):
-        result = _call_glm(system, summary, max_tokens=2048)
-        if result:
-            translated_summary = result.strip()
-            print(f"[GLM] 要約翻訳完了")
-    
-    return translated_title, translated_summary
+    # 要約は翻訳しない（レート制限回避のため）
+    return translated_title, summary
 
 
 def format_news_with_glm(news_items: list, max_items=50) -> str:
