@@ -12,7 +12,7 @@ DISCORD_WEBHOOK_URL_DAILY = os.environ.get("DISCORD_WEBHOOK_URL_DAILY", "").stri
 
 # GLM API（日次まとめの整形用・任意）
 GLM_API_KEY = os.environ.get("GLM_API_KEY", "").strip()
-GLM_API_URL = os.environ.get("GLM_API_URL", "https://open.bigmodel.cn/api/paas/v4/chat/completions").strip()
+GLM_API_URL = os.environ.get("GLM_API_URL", "https://api.z.ai/api/paas/v4/chat/completions").strip()
 GLM_MODEL = os.environ.get("GLM_MODEL", "glm-4-flash")  # 無料: glm-4-flash, glm-4.7-flash
 
 # 日次まとめでGLMを使うか（GLM_API_KEY が設定されていれば使用）
