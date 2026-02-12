@@ -7,9 +7,10 @@ Cloudflare Cron または GitHub Actions から実行する想定。
 import os
 import re
 import sys
-from config import DISCORD_WEBHOOK_URL_30M
+from config import DISCORD_WEBHOOK_URL_30M, GLM_API_KEY
 from rss_fetcher import get_recent_news_30m
 from discord_webhook import send_30m
+from glm_formatter import translate_title_and_summary
 
 # 重要キーワードに当てはまるものだけ送る（1=速報は重要ニュースのみ推奨）
 IMPORTANT_ONLY = int(os.environ.get("ALERT_30M_IMPORTANT_ONLY", "1"))
@@ -71,6 +72,11 @@ def main():
         title = e.title or "(タイトルなし)"
         summary = _get_summary(e, SUMMARY_MAX_CHARS)
         url = e.link
+        
+        # 英語の場合は日本語に翻訳（GLM_API_KEY が設定されている場合のみ）
+        if GLM_API_KEY:
+            title, summary = translate_title_and_summary(title, summary)
+        
         if summary:
             msg = f"⚡速報⚡\n**{title}**\n{summary}\n{url}"
         else:

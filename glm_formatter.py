@@ -1,13 +1,119 @@
 # -*- coding: utf-8 -*-
 """
 GLM API でニュース一覧を整形する（日次まとめオプション）
++ 英語テキストの日本語翻訳（速報用）
 OpenAI互換の chat/completions エンドポイントを想定。
+無料モデル: glm-4-flash, glm-4.7-flash
 """
 import json
 import urllib.request
 import urllib.error
 
 from config import GLM_API_KEY, GLM_API_URL, GLM_MODEL
+
+
+def _is_mostly_english(text):
+    """テキストが主に英語かどうかを判定（ASCII文字の割合で簡易判定）"""
+    if not text:
+        return False
+    ascii_chars = sum(1 for c in text if ord(c) < 128)
+    ratio = ascii_chars / len(text)
+    return ratio > 0.7  # 70%以上がASCIIなら英語と判定
+
+
+def _call_glm(system_prompt, user_prompt, max_tokens=256):
+    """GLM API を呼び出す共通関数"""
+    if not GLM_API_KEY or not GLM_API_URL:
+        return None
+    body = {
+        "model": GLM_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": max_tokens,
+    }
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        GLM_API_URL,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GLM_API_KEY}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            out = json.loads(res.read().decode())
+            content = (out.get("choices") or [{}])[0].get("message", {}).get("content", "")
+            return (content or "").strip()
+    except Exception:
+        return None
+
+
+def translate_to_japanese(text):
+    """
+    英語テキストを日本語に翻訳。
+    - 英語でなければそのまま返す
+    - GLM_API_KEY が未設定ならそのまま返す
+    - 翻訳失敗時もそのまま返す
+    """
+    if not text:
+        return text
+    if not _is_mostly_english(text):
+        return text
+    if not GLM_API_KEY:
+        return text
+    
+    system = "あなたは優秀な翻訳者です。与えられた英語テキストを自然な日本語に翻訳してください。翻訳結果のみを出力し、説明は不要です。"
+    user = text
+    result = _call_glm(system, user, max_tokens=512)
+    return result if result else text
+
+
+def translate_title_and_summary(title, summary):
+    """
+    タイトルと要約をまとめて翻訳（API呼び出し回数を減らすため）。
+    英語でなければそのまま返す。
+    """
+    if not title:
+        return title, summary
+    
+    # タイトルが英語でなければ翻訳不要
+    if not _is_mostly_english(title):
+        return title, summary
+    
+    if not GLM_API_KEY:
+        return title, summary
+    
+    # タイトルと要約をまとめて翻訳
+    system = (
+        "あなたは優秀な翻訳者です。与えられたニュースのタイトルと要約を自然な日本語に翻訳してください。"
+        "以下の形式で出力してください（他の説明は不要）:\n"
+        "タイトル: [翻訳されたタイトル]\n"
+        "要約: [翻訳された要約]"
+    )
+    if summary:
+        user = f"タイトル: {title}\n要約: {summary}"
+    else:
+        user = f"タイトル: {title}"
+    
+    result = _call_glm(system, user, max_tokens=512)
+    if not result:
+        return title, summary
+    
+    # 結果をパース
+    translated_title = title
+    translated_summary = summary
+    for line in result.split('\n'):
+        line = line.strip()
+        if line.startswith('タイトル:') or line.startswith('タイトル：'):
+            translated_title = line.split(':', 1)[-1].split('：', 1)[-1].strip()
+        elif line.startswith('要約:') or line.startswith('要約：'):
+            translated_summary = line.split(':', 1)[-1].split('：', 1)[-1].strip()
+    
+    return translated_title, translated_summary
 
 
 def format_news_with_glm(news_items: list, max_items=50) -> str:
@@ -33,28 +139,5 @@ def format_news_with_glm(news_items: list, max_items=50) -> str:
     )
     user = f"以下のニュース一覧を整形してください：\n\n{raw_list}"
 
-    body = {
-        "model": GLM_MODEL,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "max_tokens": 2048,
-    }
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        GLM_API_URL,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GLM_API_KEY}",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as res:
-            out = json.loads(res.read().decode())
-            content = (out.get("choices") or [{}])[0].get("message", {}).get("content", "")
-            return (content or "").strip()
-    except Exception:
-        return ""
+    result = _call_glm(system, user, max_tokens=2048)
+    return result if result else ""
