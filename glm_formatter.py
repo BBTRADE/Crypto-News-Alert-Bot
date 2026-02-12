@@ -136,17 +136,26 @@ def translate_title_and_summary(title, summary):
     if not GLM_API_KEY:
         return title, summary
     
-    # シンプルなプロンプトで翻訳
-    system = "あなたは英日翻訳者です。与えられた英語を自然な日本語に翻訳してください。翻訳結果のみを出力し、説明は不要です。"
+    # 明確なプロンプトで翻訳（説明文を出力させない）
+    system = "英語を日本語に翻訳してください。翻訳文のみを出力。説明・選択肢・コメントは一切不要。"
     
     # タイトルのみ翻訳（無料プランのレート制限対策）
     translated_title = title
     
-    # タイトルを翻訳（reasoning modelはトークンを多く消費するため増やす）
-    result = _call_glm(system, title, max_tokens=1024)
+    # タイトルを翻訳
+    result = _call_glm(system, title, max_tokens=256)
     if result:
-        translated_title = result.strip()
-        print(f"[GLM] タイトル翻訳: {title[:30]}... → {translated_title[:30]}...")
+        result = result.strip()
+        # 結果が日本語を含んでいるかチェック（ひらがな・カタカナ・漢字）
+        has_japanese = any('\u3040' <= c <= '\u309F' or  # ひらがな
+                          '\u30A0' <= c <= '\u30FF' or  # カタカナ
+                          '\u4E00' <= c <= '\u9FFF'     # 漢字
+                          for c in result)
+        if has_japanese:
+            translated_title = result
+            print(f"[GLM] タイトル翻訳: {title[:30]}... → {translated_title[:30]}...")
+        else:
+            print(f"[GLM] 警告: 翻訳結果が日本語でない: {result[:50]}...")
     
     # 要約は翻訳しない（レート制限回避のため）
     return translated_title, summary
