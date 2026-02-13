@@ -26,7 +26,7 @@ def _is_mostly_english(text):
 
 
 def _call_glm(system_prompt, user_prompt, max_tokens=256):
-    """GLM API を呼び出す共通関数"""
+    """GLM API を呼び出す共通関数（リトライ付き）"""
     if not GLM_API_KEY:
         print("[GLM] API Key が未設定です")
         return None
@@ -34,7 +34,7 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
         print("[GLM] API URL が未設定です")
         return None
 
-    print(f"[GLM] 翻訳リクエスト送信中... (model={GLM_MODEL}, url={GLM_API_URL[:50]}...)")
+    print(f"[GLM] リクエスト送信中... (model={GLM_MODEL}, url={GLM_API_URL[:50]}...)")
 
     body = {
         "model": GLM_MODEL or "glm-4-flash",
@@ -46,76 +46,94 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
         "temperature": 0.3,  # 一貫性のある翻訳のため低めに設定
     }
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        GLM_API_URL,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GLM_API_KEY}",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as res:
-            raw_response = res.read().decode()
-            print(f"[GLM] APIレスポンス全体: {raw_response[:500]}...")
-            out = json.loads(raw_response)
-            choices = out.get("choices") or []
-            if not choices:
-                print(f"[GLM] 警告: choicesが空です")
-                return None
 
-            message = choices[0].get("message", {})
-            # content または reasoning_content から結果を取得
-            content = message.get("content", "")
-            reasoning = message.get("reasoning_content", "")
+    max_retries = 3
+    timeout_seconds = [30, 60, 90]  # リトライごとにタイムアウトを延長
 
-            print(f"[GLM] content: {content[:100] if content else '(空)'}")
-            print(f"[GLM] reasoning_content: {reasoning[:100] if reasoning else '(空)'}")
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            GLM_API_URL,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {GLM_API_KEY}",
+            },
+            method="POST",
+        )
+        current_timeout = timeout_seconds[attempt]
+        try:
+            if attempt > 0:
+                wait = 3 * attempt  # リトライ前に待機（3秒, 6秒）
+                print(f"[GLM] {wait}秒待機後にリトライ ({attempt + 1}/{max_retries}, timeout={current_timeout}s)...")
+                time.sleep(wait)
+            with urllib.request.urlopen(req, timeout=current_timeout) as res:
+                raw_response = res.read().decode()
+                print(f"[GLM] APIレスポンス全体: {raw_response[:500]}...")
+                out = json.loads(raw_response)
+                choices = out.get("choices") or []
+                if not choices:
+                    print(f"[GLM] 警告: choicesが空です")
+                    return None
 
-            # reasoning_content に翻訳結果がある場合、最後の翻訳結果を抽出
-            if not content and reasoning:
-                import re
-                # 1. 「出力:」の後の部分を優先的に抽出（最後に出現するものを取得）
-                matches = list(re.finditer(r'出力[：:]\s*(.+?)(?:\n|$)', reasoning, re.IGNORECASE | re.MULTILINE))
-                if matches:
-                    # 最後の「出力:」を使用
-                    content = matches[-1].group(1).strip()
-                    print(f"[GLM] reasoning_contentから「出力:」パターンで抽出: {content[:50]}...")
+                message = choices[0].get("message", {})
+                # content または reasoning_content から結果を取得
+                content = message.get("content", "")
+                reasoning = message.get("reasoning_content", "")
 
-                # 2. 見つからない場合、日本語を含む行を探す（英語の説明行を除外）
-                if not content:
-                    lines = reasoning.strip().split('\n')
-                    for line in lines:
-                        line = line.strip()
-                        # 日本語（ひらがな・カタカナ・漢字）を含み、英語の説明行でない行を探す
-                        if line and any('\u3040' <= c <= '\u309F' or '\u30A0' <= c <= '\u30FF' or '\u4E00' <= c <= '\u9FFF' for c in line):
-                            # 英語のマークダウンやリスト記号、説明文を除外
-                            if not re.match(r'^\d+\.\s+\*\*', line) and not line.startswith('*') and not line.startswith('#'):
-                                content = line
-                                print(f"[GLM] reasoning_contentから日本語行を抽出: {content[:50]}...")
-                                break
+                print(f"[GLM] content: {content[:100] if content else '(空)'}")
+                print(f"[GLM] reasoning_content: {reasoning[:100] if reasoning else '(空)'}")
 
-                # 3. それでも見つからない場合、「翻訳:」や「Translation:」パターンを探す
-                if not content:
-                    match = re.search(r'(?:翻訳|Translation|Result)[：:]\s*(.+)', reasoning, re.IGNORECASE)
-                    if match:
-                        content = match.group(1).strip()
-                        print(f"[GLM] reasoning_contentから「翻訳:」パターンで抽出: {content[:50]}...")
+                # reasoning_content に翻訳結果がある場合、最後の翻訳結果を抽出
+                if not content and reasoning:
+                    import re
+                    # 1. 「出力:」の後の部分を優先的に抽出（最後に出現するものを取得）
+                    matches = list(re.finditer(r'出力[：:]\s*(.+?)(?:\n|$)', reasoning, re.IGNORECASE | re.MULTILINE))
+                    if matches:
+                        # 最後の「出力:」を使用
+                        content = matches[-1].group(1).strip()
+                        print(f"[GLM] reasoning_contentから「出力:」パターンで抽出: {content[:50]}...")
 
-            print(f"[GLM] 最終的な翻訳結果 (content長さ: {len(content)}): {content[:100] if content else '(なし)'}...")
-            # レート制限対策：次のAPIコールまで待機
-            time.sleep(API_CALL_DELAY)
-            return (content or "").strip()
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode()
-        print(f"[GLM] HTTP エラー: {e.code} - {error_body[:300]}")
-        return None
-    except Exception as e:
-        print(f"[GLM] エラー: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+                    # 2. 見つからない場合、日本語を含む行を探す（英語の説明行を除外）
+                    if not content:
+                        lines = reasoning.strip().split('\n')
+                        for line in lines:
+                            line = line.strip()
+                            # 日本語（ひらがな・カタカナ・漢字）を含み、英語の説明行でない行を探す
+                            if line and any('\u3040' <= c <= '\u309F' or '\u30A0' <= c <= '\u30FF' or '\u4E00' <= c <= '\u9FFF' for c in line):
+                                # 英語のマークダウンやリスト記号、説明文を除外
+                                if not re.match(r'^\d+\.\s+\*\*', line) and not line.startswith('*') and not line.startswith('#'):
+                                    content = line
+                                    print(f"[GLM] reasoning_contentから日本語行を抽出: {content[:50]}...")
+                                    break
+
+                    # 3. それでも見つからない場合、「翻訳:」や「Translation:」パターンを探す
+                    if not content:
+                        match = re.search(r'(?:翻訳|Translation|Result)[：:]\s*(.+)', reasoning, re.IGNORECASE)
+                        if match:
+                            content = match.group(1).strip()
+                            print(f"[GLM] reasoning_contentから「翻訳:」パターンで抽出: {content[:50]}...")
+
+                print(f"[GLM] 最終的な翻訳結果 (content長さ: {len(content)}): {content[:100] if content else '(なし)'}...")
+                # レート制限対策：次のAPIコールまで待機
+                time.sleep(API_CALL_DELAY)
+                return (content or "").strip()
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode()
+            print(f"[GLM] HTTP エラー: {e.code} - {error_body[:300]}")
+            return None
+        except (TimeoutError, urllib.error.URLError, ConnectionError, OSError) as e:
+            print(f"[GLM] タイムアウト/接続エラー (試行 {attempt + 1}/{max_retries}): {type(e).__name__}: {e}")
+            if attempt < max_retries - 1:
+                continue  # リトライ
+            print(f"[GLM] 全{max_retries}回の試行が失敗しました")
+            return None
+        except Exception as e:
+            print(f"[GLM] エラー: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    return None
 
 
 def translate_to_japanese(text):
