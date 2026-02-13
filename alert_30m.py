@@ -80,15 +80,65 @@ def main():
         title = e.title or "(タイトルなし)"
         summary = _get_summary(e, SUMMARY_MAX_CHARS)
         url = e.link
-        
-        # 英語の場合は日本語に翻訳（GLM_API_KEY が設定されている場合のみ）
+
+        # 英語の場合は日本語に翻訳＋コメント・分析を生成（GLM_API_KEY が設定されている場合のみ）
         if GLM_API_KEY:
-            title, summary = translate_title_and_summary(title, summary)
-        
-        if summary:
-            msg = f"⚡速報⚡\n**{title}**\n{summary}\n{url}"
+            result = translate_title_and_summary(title, summary)
+            title = result['title']
+            summary = result['summary']
+            comment = result['comment']
+            impact_score = result['impact_score']
+            sentiment = result['sentiment']
+            urgency = result['urgency']
         else:
-            msg = f"⚡速報⚡\n**{title}**\n{url}"
+            comment = ''
+            impact_score = 0
+            sentiment = ''
+            urgency = ''
+
+        # メッセージを構築
+        msg_parts = [f"⚡速報⚡", f"**{title}**"]
+
+        if summary:
+            msg_parts.append(summary)
+
+        # コメントを追加（1行空けて）
+        if comment:
+            msg_parts.append("")  # 空行
+            msg_parts.append(comment)
+
+        # インパクト分析を追加（1行空けて）
+        if impact_score > 0:
+            msg_parts.append("")  # 空行
+            # 影響度スコアを⭐で表示
+            stars = "⭐" * impact_score + "☆" * (5 - impact_score)
+            analysis_parts = [
+                "📊 インパクト分析",
+                f"・影響度: {stars} ({impact_score}/5)"
+            ]
+
+            # センチメントを絵文字付きで表示
+            if sentiment:
+                sentiment_emoji = {
+                    'ポジティブ': '📈',
+                    '中立': '➡️',
+                    'ネガティブ': '📉'
+                }.get(sentiment, '')
+                analysis_parts.append(f"・センチメント: {sentiment_emoji} {sentiment}")
+
+            # 緊急度を絵文字付きで表示
+            if urgency:
+                urgency_emoji = {
+                    '高': '🔥',
+                    '中': '⚡',
+                    '低': '💡'
+                }.get(urgency, '')
+                analysis_parts.append(f"・緊急度: {urgency_emoji} {urgency}")
+
+            msg_parts.append("\n".join(analysis_parts))
+
+        msg_parts.append(url)
+        msg = "\n".join(msg_parts)
         messages.append(msg)
     ok, err = send_30m(messages)
     if not ok:

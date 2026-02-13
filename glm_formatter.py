@@ -140,52 +140,85 @@ def translate_to_japanese(text):
 
 def translate_title_and_summary(title, summary):
     """
-    タイトルと要約をまとめて翻訳（API呼び出し回数を減らすため）。
+    タイトルと要約を翻訳し、ポジティブなコメントとインパクト分析を生成。
     英語でなければそのまま返す。
     """
     if not title:
-        return title, summary
+        return {
+            'title': title,
+            'summary': summary,
+            'comment': '',
+            'impact_score': 0,
+            'sentiment': '',
+            'urgency': ''
+        }
 
     # タイトルが英語でなければ翻訳不要
     if not _is_mostly_english(title):
         print(f"[GLM] 日本語のためスキップ: {title[:30]}...")
-        return title, summary
+        return {
+            'title': title,
+            'summary': summary,
+            'comment': '',
+            'impact_score': 0,
+            'sentiment': '',
+            'urgency': ''
+        }
 
     if not GLM_API_KEY:
         print(f"[GLM] API Key未設定のためスキップ")
-        return title, summary
+        return {
+            'title': title,
+            'summary': summary,
+            'comment': '',
+            'impact_score': 0,
+            'sentiment': '',
+            'urgency': ''
+        }
 
     print(f"[GLM] 翻訳対象 - タイトル: {title[:50]}...")
     if summary:
         print(f"[GLM] 翻訳対象 - 要約: {summary[:50]}...")
 
-    # タイトルと要約をまとめて翻訳（1回のAPI呼び出しで効率化）
-    system = """あなたは英語を日本語に翻訳する専門家です。
-与えられた英語のニュースタイトルと要約を日本語に翻訳してください。
+    # タイトル・要約の翻訳 + コメント・分析を生成（1回のAPI呼び出しで効率化）
+    system = """あなたは暗号資産ニュースの翻訳と分析の専門家です。
+与えられた英語のニュースを日本語に翻訳し、投資家向けのポジティブなコメントと市場インパクト分析を提供してください。
 
 出力形式:
 タイトル: [日本語訳]
 要約: [日本語訳]
+コメント: [前向きで励みになる1-2文のコメント。絵文字を適度に使用🚀📈💪]
+影響度: [1-5の数値のみ]
+センチメント: [ポジティブ/中立/ネガティブ のいずれか]
+緊急度: [高/中/低 のいずれか]
 
 例:
 入力タイトル: Bitcoin Hits New All-Time High
 入力要約: Bitcoin reached a new record price today amid strong market demand.
 出力:
 タイトル: ビットコインが史上最高値を更新
-要約: ビットコインは強い市場需要の中、本日新記録価格に到達しました。"""
+要約: ビットコインは強い市場需要の中、本日新記録価格に到達しました。
+コメント: ビットコインが最高値を更新して暗号資産市場全体に勢いが出てきましたね！🚀 機関投資家の参入も続いており、今後の展開が楽しみです💪
+影響度: 5
+センチメント: ポジティブ
+緊急度: 高"""
 
     translated_title = title
     translated_summary = summary
+    comment = ''
+    impact_score = 0
+    sentiment = ''
+    urgency = ''
 
-    # タイトルと要約を一緒に翻訳
+    # タイトルと要約を一緒に翻訳＋分析
     if summary and _is_mostly_english(summary):
         user_prompt = f"入力タイトル: {title}\n入力要約: {summary}\n出力:"
     else:
         # 要約がない、または日本語の場合はタイトルのみ
         user_prompt = f"入力タイトル: {title}\n出力:"
 
-    # 推論モデルの場合でも対応できるよう大きめに設定
-    result = _call_glm(system, user_prompt, max_tokens=2048)
+    # コメント・分析も生成するため、さらにトークンを増やす
+    result = _call_glm(system, user_prompt, max_tokens=3072)
 
     if result:
         # クリーンアップ: 不要なラベルやマークダウンを除去
@@ -194,9 +227,13 @@ def translate_title_and_summary(title, summary):
         # プレースホルダーを除去
         result = re.sub(r'\[Japanese Translation\]', '', result, flags=re.IGNORECASE).strip()
 
-        # タイトルと要約を分離して抽出
+        # 各項目を正規表現で抽出
         title_match = re.search(r'(?:タイトル|Title)[：:]\s*(.+?)(?:\n|$)', result, re.IGNORECASE | re.MULTILINE)
-        summary_match = re.search(r'(?:要約|Summary)[：:]\s*(.+?)(?:\n|$)', result, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+        summary_match = re.search(r'(?:要約|Summary)[：:]\s*(.+?)(?:\n(?:コメント|Comment|影響度|センチメント|緊急度)|$)', result, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+        comment_match = re.search(r'(?:コメント|Comment)[：:]\s*(.+?)(?:\n(?:影響度|センチメント|緊急度|タイトル|要約)|$)', result, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+        impact_match = re.search(r'(?:影響度|Impact)[：:]\s*(\d+)', result, re.IGNORECASE)
+        sentiment_match = re.search(r'(?:センチメント|Sentiment)[：:]\s*(ポジティブ|中立|ネガティブ|Positive|Neutral|Negative)', result, re.IGNORECASE)
+        urgency_match = re.search(r'(?:緊急度|Urgency)[：:]\s*(高|中|低|High|Medium|Low)', result, re.IGNORECASE)
 
         if title_match:
             translated_title = title_match.group(1).strip().strip('"\'')
@@ -204,9 +241,37 @@ def translate_title_and_summary(title, summary):
 
         if summary_match and summary:
             translated_summary = summary_match.group(1).strip().strip('"\'')
-            # 次の「タイトル:」や「要約:」が出現する前まで取得
-            translated_summary = re.split(r'\n(?:タイトル|Title|要約|Summary)[：:]', translated_summary)[0].strip()
             print(f"[GLM] ✓ 要約翻訳成功: {summary[:40]}... → {translated_summary[:40]}...")
+
+        if comment_match:
+            comment = comment_match.group(1).strip().strip('"\'')
+            print(f"[GLM] ✓ コメント生成成功: {comment[:50]}...")
+
+        if impact_match:
+            impact_score = int(impact_match.group(1))
+            print(f"[GLM] ✓ 影響度: {impact_score}/5")
+
+        if sentiment_match:
+            sentiment_raw = sentiment_match.group(1)
+            # 英語を日本語に統一
+            sentiment_map = {
+                'positive': 'ポジティブ', 'ポジティブ': 'ポジティブ',
+                'neutral': '中立', '中立': '中立',
+                'negative': 'ネガティブ', 'ネガティブ': 'ネガティブ'
+            }
+            sentiment = sentiment_map.get(sentiment_raw.lower(), sentiment_raw)
+            print(f"[GLM] ✓ センチメント: {sentiment}")
+
+        if urgency_match:
+            urgency_raw = urgency_match.group(1)
+            # 英語を日本語に統一
+            urgency_map = {
+                'high': '高', '高': '高',
+                'medium': '中', '中': '中',
+                'low': '低', '低': '低'
+            }
+            urgency = urgency_map.get(urgency_raw.lower(), urgency_raw)
+            print(f"[GLM] ✓ 緊急度: {urgency}")
 
         # パターンが見つからない場合は単一の翻訳結果として扱う（タイトルのみの場合）
         if not title_match and not summary_match:
@@ -238,7 +303,14 @@ def translate_title_and_summary(title, summary):
     else:
         print(f"[GLM] ✗ 翻訳失敗: resultがNone")
 
-    return translated_title, translated_summary
+    return {
+        'title': translated_title,
+        'summary': translated_summary,
+        'comment': comment,
+        'impact_score': impact_score,
+        'sentiment': sentiment,
+        'urgency': urgency
+    }
 
 
 def format_news_with_glm(news_items: list, max_items=50) -> str:
