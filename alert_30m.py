@@ -114,7 +114,7 @@ def main():
             stars = "⭐" * impact_score + "☆" * (5 - impact_score)
             analysis_parts = [
                 "📊 インパクト分析",
-                f"・影響度: {stars} ({impact_score}/5)"
+                f"・影響度: {stars}"
             ]
 
             # センチメントを絵文字付きで表示
