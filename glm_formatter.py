@@ -114,9 +114,19 @@ def _call_glm(system_prompt, user_prompt, max_tokens=256):
                             print(f"[GLM] reasoning_contentから「翻訳:」パターンで抽出: {content[:50]}...")
 
                 print(f"[GLM] 最終的な翻訳結果 (content長さ: {len(content)}): {content[:100] if content else '(なし)'}...")
+
+                # 空レスポンス（finish_reason: "abort" 等）の場合はリトライ
+                if not content.strip():
+                    finish_reason = choices[0].get("finish_reason", "unknown")
+                    print(f"[GLM] 空レスポンス (finish_reason={finish_reason}, 試行 {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        continue  # リトライ
+                    print(f"[GLM] 全{max_retries}回の試行で有効な応答を得られませんでした")
+                    return None
+
                 # レート制限対策：次のAPIコールまで待機
                 time.sleep(API_CALL_DELAY)
-                return (content or "").strip()
+                return content.strip()
         except urllib.error.HTTPError as e:
             error_body = e.read().decode()
             print(f"[GLM] HTTP エラー: {e.code} - {error_body[:300]}")
