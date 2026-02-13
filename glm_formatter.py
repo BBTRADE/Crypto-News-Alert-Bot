@@ -255,16 +255,26 @@ def translate_title_and_summary(title, summary):
         sentiment_match = re.search(r'(?:センチメント|Sentiment)[：:]\s*(ポジティブ|中立|ネガティブ|Positive|Neutral|Negative)', result, re.IGNORECASE)
         urgency_match = re.search(r'(?:緊急度|Urgency)[：:]\s*(高|中|低|High|Medium|Low)', result, re.IGNORECASE)
 
-        if title_match:
-            translated_title = title_match.group(1).strip().strip('"\'')
-            print(f"[GLM] ✓ タイトル翻訳成功: {title[:40]}... → {translated_title[:40]}...")
+        # 英語ニュースの場合のみタイトル・要約を更新
+        if is_english:
+            if title_match:
+                translated_title = title_match.group(1).strip().strip('"\'')
+                print(f"[GLM] ✓ タイトル翻訳成功: {title[:40]}... → {translated_title[:40]}...")
 
-        if summary_match and summary:
-            translated_summary = summary_match.group(1).strip().strip('"\'')
-            print(f"[GLM] ✓ 要約翻訳成功: {summary[:40]}... → {translated_summary[:40]}...")
+            if summary_match and summary:
+                translated_summary = summary_match.group(1).strip().strip('"\'')
+                print(f"[GLM] ✓ 要約翻訳成功: {summary[:40]}... → {translated_summary[:40]}...")
 
+        # コメントを抽出（日本語・英語共通）
         if comment_match:
             comment = comment_match.group(1).strip().strip('"\'')
+            # 絵文字を1つまでに制限
+            emoji_pattern = r'[\U0001F300-\U0001F9FF]'  # 絵文字の範囲
+            emojis = re.findall(emoji_pattern, comment)
+            if len(emojis) > 1:
+                # 最初の絵文字以外を削除
+                for emoji in emojis[1:]:
+                    comment = comment.replace(emoji, '', 1)
             print(f"[GLM] ✓ コメント生成成功: {comment[:50]}...")
 
         if impact_match:
@@ -293,8 +303,8 @@ def translate_title_and_summary(title, summary):
             urgency = urgency_map.get(urgency_raw.lower(), urgency_raw)
             print(f"[GLM] ✓ 緊急度: {urgency}")
 
-        # パターンが見つからない場合は単一の翻訳結果として扱う（タイトルのみの場合）
-        if not title_match and not summary_match:
+        # 英語ニュースでパターンが見つからない場合のフォールバック処理
+        if is_english and not title_match and not summary_match:
             # 複数行の場合は日本語を含む最初の行を使用
             if '\n' in result:
                 lines = [line.strip() for line in result.split('\n') if line.strip()]
