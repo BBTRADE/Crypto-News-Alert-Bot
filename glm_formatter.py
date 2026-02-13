@@ -153,18 +153,6 @@ def translate_title_and_summary(title, summary):
             'urgency': ''
         }
 
-    # タイトルが英語でなければ翻訳不要
-    if not _is_mostly_english(title):
-        print(f"[GLM] 日本語のためスキップ: {title[:30]}...")
-        return {
-            'title': title,
-            'summary': summary,
-            'comment': '',
-            'impact_score': 0,
-            'sentiment': '',
-            'urgency': ''
-        }
-
     if not GLM_API_KEY:
         print(f"[GLM] API Key未設定のためスキップ")
         return {
@@ -176,12 +164,29 @@ def translate_title_and_summary(title, summary):
             'urgency': ''
         }
 
-    print(f"[GLM] 翻訳対象 - タイトル: {title[:50]}...")
-    if summary:
-        print(f"[GLM] 翻訳対象 - 要約: {summary[:50]}...")
+    # タイトルが英語かどうかを判定
+    is_english = _is_mostly_english(title)
 
-    # タイトル・要約の翻訳 + コメント・分析を生成（1回のAPI呼び出しで効率化）
-    system = """あなたは暗号資産ニュースの翻訳と分析の専門家です。
+    if is_english:
+        print(f"[GLM] 翻訳対象 - タイトル: {title[:50]}...")
+        if summary:
+            print(f"[GLM] 翻訳対象 - 要約: {summary[:50]}...")
+    else:
+        print(f"[GLM] 日本語ニュース - タイトル: {title[:50]}...")
+        if summary:
+            print(f"[GLM] 日本語ニュース - 要約: {summary[:50]}...")
+
+    translated_title = title
+    translated_summary = summary
+    comment = ''
+    impact_score = 0
+    sentiment = ''
+    urgency = ''
+
+    # 英語の場合は翻訳+分析、日本語の場合は分析のみ
+    if is_english:
+        # 英語ニュースの場合: 翻訳 + コメント・分析
+        system = """あなたは暗号資産ニュースの翻訳と分析の専門家です。
 与えられた英語のニュースを日本語に翻訳し、投資家向けのポジティブなコメントと市場インパクト分析を提供してください。
 
 出力形式:
@@ -203,19 +208,34 @@ def translate_title_and_summary(title, summary):
 センチメント: ポジティブ
 緊急度: 高"""
 
-    translated_title = title
-    translated_summary = summary
-    comment = ''
-    impact_score = 0
-    sentiment = ''
-    urgency = ''
-
-    # タイトルと要約を一緒に翻訳＋分析
-    if summary and _is_mostly_english(summary):
-        user_prompt = f"入力タイトル: {title}\n入力要約: {summary}\n出力:"
+        if summary and _is_mostly_english(summary):
+            user_prompt = f"入力タイトル: {title}\n入力要約: {summary}\n出力:"
+        else:
+            user_prompt = f"入力タイトル: {title}\n出力:"
     else:
-        # 要約がない、または日本語の場合はタイトルのみ
-        user_prompt = f"入力タイトル: {title}\n出力:"
+        # 日本語ニュースの場合: コメント・分析のみ（翻訳不要）
+        system = """あなたは暗号資産ニュースの分析専門家です。
+与えられた日本語のニュースに対して、投資家向けのポジティブなコメントと市場インパクト分析を提供してください。
+
+出力形式:
+コメント: [前向きで励みになる1-2文のコメント。絵文字を適度に使用🚀📈💪]
+影響度: [1-5の数値のみ]
+センチメント: [ポジティブ/中立/ネガティブ のいずれか]
+緊急度: [高/中/低 のいずれか]
+
+例:
+入力タイトル: ビットコインが史上最高値を更新
+入力要約: ビットコインは強い市場需要の中、本日新記録価格に到達しました。
+出力:
+コメント: ビットコインが最高値を更新して暗号資産市場全体に勢いが出てきましたね！🚀 機関投資家の参入も続いており、今後の展開が楽しみです💪
+影響度: 5
+センチメント: ポジティブ
+緊急度: 高"""
+
+        if summary:
+            user_prompt = f"入力タイトル: {title}\n入力要約: {summary}\n出力:"
+        else:
+            user_prompt = f"入力タイトル: {title}\n出力:"
 
     # コメント・分析も生成するため、さらにトークンを増やす
     result = _call_glm(system, user_prompt, max_tokens=3072)
