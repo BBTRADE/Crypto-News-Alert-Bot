@@ -5,6 +5,13 @@ on:
     - cron: '*/30 * * * *'   # 30分ごと (UTC)
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   DISCORD_WEBHOOK_URL_30M: ${{ secrets.DISCORD_WEBHOOK_URL_30M }}
   ALERT_30M_IMPORTANT_ONLY: "1"
@@ -17,25 +24,27 @@ env:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # 送信済みリンクのキャッシュを復元
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with:
           path: .cache
-          key: posted-links-30m-${{ hashFiles('.cache/posted_links_30m.txt') }}
-          restore-keys: posted-links-30m-
-      - uses: actions/setup-python@v5
+          key: posted-links-30m-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            posted-links-30m-v2-
+            posted-links-30m-
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt
       - name: Run 30min alert
         run: python alert_30m.py
       # 送信済みリンクのキャッシュを保存
-      - uses: actions/cache/save@v4
-        if: always()
+      - uses: actions/cache/save@v6
+        if: always() && hashFiles('.cache/posted_links_30m.txt') != ''
         with:
           path: .cache
-          key: posted-links-30m-${{ hashFiles('.cache/posted_links_30m.txt') }}
+          key: posted-links-30m-v2-${{ github.run_id }}-${{ github.run_attempt }}
